@@ -4,66 +4,70 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
-import kotlin.random.Random
-import androidx.compose.foundation.Image
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.res.painterResource
-//import android.os.Handler
-//import android.os.Looper
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 class YahtzeeViewModel : ViewModel() {
-//    private val mainHandler = Handler(
-//        Looper.getMainLooper()
-//    )
     var diceValues by mutableStateOf(
         listOf(1, 1, 1, 1, 1)
     )
         private set
-
     var categoryScores by mutableStateOf(
         emptyList<CategoryScore>()
     )
         private set
+    var rollCount by mutableStateOf(0)
+        private set
+    var heldDice by mutableStateOf(
+        List(5) { false }
+    )
+        private set
+    var usedCategories by mutableStateOf(
+        emptySet<YahtzeeCategory>()
+    )
+        private set
+    var savedScores by mutableStateOf(
+        emptyList<CategoryScore>()
+    )
+        private set
+    val gameOver: Boolean
+        get() = usedCategories.size == YahtzeeCategory.entries.size
+    val totalScore: Int
+        get() = savedScores.sumOf { it.score }
 
     private fun rollDice(): Int {
         return Random.nextInt(1, 7)
     }
 
-//    fun rollWithoutCoroutine() {
-//        Thread {
-//            repeat(10) {
-//                val newValues = List(5) {
-//                    rollDice()
-//                }
-//                mainHandler.post {
-//
-//                    diceValues = newValues
-//                }
-//                Thread.sleep(100)
-//            }
-//        }.start()
-//    }
     fun rollWithCoroutine() {
+        if (rollCount >= 3 || gameOver) {
+            return
+        }
+        rollCount++
         viewModelScope.launch {
             repeat(10) {
-                diceValues = List(5) {
-                    rollDice()
+                diceValues = diceValues.mapIndexed { index, value ->
+                    if (heldDice[index]) {
+                        value
+                    } else {
+                        rollDice()
+                    }
                 }
-                evaluateDice()
                 delay(100)
             }
+            evaluateDice()
         }
     }
 
     private fun evaluateDice() {
         categoryScores =
-            DiceRules
-                .getAvailableCategories(diceValues)
+            YahtzeeCategory.entries
+                .filter { category ->
+                    category !in usedCategories
+                }
                 .map { category ->
-
                     CategoryScore(
                         category = category,
                         score = DiceRules.scoreFor(
@@ -73,27 +77,44 @@ class YahtzeeViewModel : ViewModel() {
                     )
                 }
     }
-}
 
-@Composable
-fun Die(value: Int) {
-
-    val diceImage = when (value) {
-
-        1 -> R.drawable.die_1
-        2 -> R.drawable.die_2
-        3 -> R.drawable.die_3
-        4 -> R.drawable.die_4
-        5 -> R.drawable.die_5
-        6 -> R.drawable.die_6
-
-        else -> R.drawable.die_1
+    fun newGame() {
+        diceValues = List(5) { 1 }
+        rollCount = 0
+        heldDice = List(5) { false }
+        categoryScores = emptyList()
+        savedScores = emptyList()
+        usedCategories = emptySet()
     }
 
-    Image(
-        painter = painterResource(
-            id = diceImage
-        ),
-        contentDescription = "Dice showing $value"
-    )
+    fun toggleHold(index: Int) {
+        if (rollCount == 0 || rollCount >= 3 || gameOver) {
+            return
+        }
+        heldDice = heldDice.toMutableList().also {
+            it[index] = !it[index]
+        }
+    }
+
+    fun selectCategory(category: YahtzeeCategory) {
+        if (rollCount == 0 || category in usedCategories) {
+            return
+        }
+        val score = DiceRules.scoreFor(
+            category = category,
+            dice = diceValues
+        )
+        savedScores = savedScores + CategoryScore(
+            category = category,
+            score = score
+        )
+        usedCategories = usedCategories + category
+        startNextTurn()
+    }
+
+    private fun startNextTurn() {
+        rollCount = 0
+        heldDice = List(5) { false }
+        categoryScores = emptyList()
+    }
 }
